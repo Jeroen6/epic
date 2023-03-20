@@ -10,6 +10,9 @@ from urllib.request import urlopen
 import time
 
 # Settings!
+# Image type, natural (False), (color)enhanced (True)
+useEnhancedAPI = False
+
 # This is how many images to keep cached
 imageCount = 14
 
@@ -98,7 +101,10 @@ def blitFadeOut(target, image, pos, step=2):
 def get_epic_images_json():
     """Pull the API json from NASA EPIC """    
     # Call the epic api
-    response = requests.get("https://epic.gsfc.nasa.gov/api/natural")
+    if(useEnhancedAPI):
+        response = requests.get("https://epic.gsfc.nasa.gov/api/enhanced")
+    else:
+        response = requests.get("https://epic.gsfc.nasa.gov/api/natural")    
     imjson = response.json()
     return imjson
 
@@ -130,7 +136,10 @@ def create_image_urls(photos):
     urls = []
     for photo in photos:
         dt = datetime.datetime.strptime(photo["date"], "%Y-%m-%d %H:%M:%S")
-        imageurl = "https://epic.gsfc.nasa.gov/archive/natural/"+str(dt.year)+"/"+str(dt.month).zfill(2)+"/"+str(dt.day).zfill(2)+"/jpg/"+photo["image"]+".jpg"
+        if(useEnhancedAPI):
+            imageurl = "https://epic.gsfc.nasa.gov/archive/enhanced/"+str(dt.year)+"/"+str(dt.month).zfill(2)+"/"+str(dt.day).zfill(2)+"/jpg/"+photo["image"]+".jpg"
+        else:
+            imageurl = "https://epic.gsfc.nasa.gov/archive/natural/"+str(dt.year)+"/"+str(dt.month).zfill(2)+"/"+str(dt.day).zfill(2)+"/jpg/"+photo["image"]+".jpg"        
         urls.append(imageurl)    
     return urls
 
