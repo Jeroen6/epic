@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 import requests
 import re
 from bs4 import BeautifulSoup
+import cv2
+import numpy as np
 
 def listFD(url, ext=''):
     """
@@ -29,9 +31,32 @@ def daterange(start_date, end_date):
     for n in range(int((end_date - start_date).days) + 1):
         yield start_date + timedelta(n)
 
+def opencv_infill_white_pixels_bottom_row(image, rows=20):
+    # Read the image
+    mask = image.copy()
+    # Clear unimportant bits
+    mask[:-rows, :, :] = 0  # Set to black (0, 0, 0)
+    # Define the white color range in RGB
+    lower_white = np.array([230, 230, 230], dtype=np.uint8)
+    upper_white = np.array([255, 255, 255], dtype=np.uint8)
+    # Create a mask for white pixels
+    white_mask = cv2.inRange(mask, lower_white, upper_white)
+    # Extract white pixels using the mask
+    white_pixels = cv2.bitwise_and(image, image, mask=white_mask)
+    inpaintmask = cv2.cvtColor(white_pixels, cv2.COLOR_BGR2GRAY)
+    return cv2.inpaint(image, inpaintmask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+
+def opencv_remove_timestamp(input_image_path, output_image_path):
+    print("cv2, loading image,", end =" ")
+    input = cv2.imread(input_image_path)
+    print("removing text,", end =" ")
+    output = opencv_infill_white_pixels_bottom_row(input)
+    print("saving image", end ="\n")
+    cv2.imwrite(output_image_path, output)
+
 class AIA:
 
-    def download_range(start_date, end_date, channel, resolution, download_path):
+    def download_range(start_date, end_date, channel, resolution, download_path, removeTexts = False):
         """
         Download a range of SDO (Solar Dynamics Observatory) images for a specific channel and resolution.
 
@@ -84,6 +109,8 @@ class AIA:
                         response.raise_for_status()  # Raise an HTTPError for bad responses
                         with open(filename, 'wb') as file:
                             file.write(response.content)
+                        if(removeTexts):
+                            opencv_remove_timestamp(filename,filename)                            
                     except requests.exceptions.RequestException as e:
                         print(f"Error {file} => {filename} ({e})")
                 else:
@@ -131,7 +158,7 @@ class AIA:
         timestamp = datetime.strptime(timestring, "%Y%m%d_%H%M%S")
         return timestamp
 
-    def download_latest_image(channel, resolution, download_path):
+    def download_latest_image(channel, resolution, download_path, removeTexts = False):
         """
         Downloads the latest solar image from the Solar Dynamics Observatory (SDO) for a specified channel and resolution.
         Images are updated per 15 minutes.
@@ -163,7 +190,7 @@ class AIA:
         filename = os.path.join(download_path, f"{timestring}_{os.path.basename(imageurl)}")
         filename = filename.replace('latest_','')
         if(not os.path.isfile(f"{filename}")):
-            print(f"Download: {file} => {filename}")
+            print(f"Download: {imageurl} => {filename}")
             try:
                 response = requests.get(imageurl)
                 response.raise_for_status()  # Raise an HTTPError for bad responses
@@ -172,7 +199,11 @@ class AIA:
             except requests.exceptions.RequestException as e:
                 print(f"Error {file} => {filename} ({e})")
         else:
-            print(f"Exists: {file} => {filename}")
+            print(f"Exists: {imageurl} => {filename}")
+
+        if(removeTexts):
+            opencv_remove_timestamp(filename,filename)
+
         return filename, timestamp
 
     def download_latest_video(channel, resolution, download_path):

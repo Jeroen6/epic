@@ -159,7 +159,7 @@ def selectNewImage(currentIndex):
     return files[currentIndex],currentIndex
 
 # Startup code
-AIA.download_range(datetime.now()-timedelta(days=1), datetime.now(), aia_channel, aia_resolution, "./data/")
+AIA.download_range(datetime.now()-timedelta(days=1), datetime.now(), aia_channel, aia_resolution, "./data/", True)
 delete_old_images()
 
 # Read the last image count and the last time we checked api from file
