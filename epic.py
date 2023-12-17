@@ -1,7 +1,7 @@
 import pygame
 import glob
 import os.path
-import datetime
+from datetime import datetime, timedelta
 import io
 from urllib.request import urlopen
 from aia import AIA
@@ -16,22 +16,23 @@ aia_channel = '0193'
 aia_resolution = '512'
 
 # This is how many images to keep cached
-imageCount = 100
+imageCount = 200
 
 # This sets an age threshold for deletetion (curernt not used)
-ageThreshold = datetime.timedelta(hours=48)
+ageThreshold = timedelta(hours=48)
 
 # This is the delay between api calls
-check_delay = datetime.timedelta(minutes=15)
+check_delay = timedelta(minutes=9)
 
 # This is the delay rotating the slowhow
-rotateTime = datetime.timedelta(seconds=20)
+rotateTime = timedelta(seconds=0.6)
 
 # This is how fast the loop runs 
 # and thus how much cpu is used
 # fadeTime in seconds
 frameRate = 15
-fadeTime = 1.0
+fadeTime = 0.5
+fadingSetting = True
 
 # Crop the image?
 # There some space around the earth, crop this? (pun intended)
@@ -43,11 +44,6 @@ crop_extra_edge = 3
 # Constants for autocrop
 planet_diameter_km = 12742
 camera_fov_deg = 0.62
-
-# Archive originals? (these are not autodeleted)
-# At ~165 KB an image it can fill up some disk!
-# Around 750 MB a year
-archive_originals = False
 
 # Exit on mouse hold (seconds)
 mouse_exit_delay = 5
@@ -100,30 +96,6 @@ def blitFadeOut(target, image, pos, step=2):
     target.blit(image, pos)
     return alpha == 0
 
-def save_photos(imageurls, cropfactor=1):
-    """Download, crop and save the image"""
-    print("saving photos")
-    counter=0
-    for imageurl in imageurls:
-        # Create a surface object, draw image on it..
-        image_file = io.BytesIO(urlopen(imageurl).read())
-        image = pygame.image.load(image_file)
-        if(archive_originals):
-            pygame.image.save(image, "./originals/"+os.path.basename(imageurl))
-
-        if(cropping):
-            # Crop to size based on cropfactor
-            w = image.get_width() * cropfactor
-            if(w+crop_extra_edge <= image.get_width()):
-                w = w + crop_extra_edge
-            cropped = pygame.Surface((w,w))
-            cropped.blit(image,(0,0),((1080-w)/2,(1080-w)/2,w,w))
-            image = pygame.transform.scale(cropped, (480,480))
-
-        pygame.image.save(image, "./data/"+os.path.basename(imageurl))
-        print("Downloaded {}".format(imageurl))
-    print("photos saved")
-
 def find_and_download_new_images():
     """Check data directory, check api, download and crop new images we don't have, and delete old ones"""
     # Find images   
@@ -137,8 +109,9 @@ def find_and_download_new_images():
     # Check for new images
     try:
         latest = AIA.download_latest_time(aia_channel)
-        timecompare = datetime.timedelta(minutes=15)
-        if latest < datetime.datetime.now()-timecompare:
+        print(latest)
+        timecompare = timedelta(minutes=15)
+        if latest < datetime.now()-timecompare:
             print("downloading new image")
             AIA.download_latest_image(aia_channel, aia_resolution, "./data/")
     except Exception as e:
@@ -155,16 +128,19 @@ def delete_old_images():
     if(count > imageCount):
         print("More than {} images, cleaning the oldest".format(imageCount))
         for file in files:
+            # 20231217_170741_512_0193.jpg
             f = os.path.splitext(os.path.basename(file))[0]
-            stamp = str(f.split('-')[0])
-            # 20231217_153753
-            date = datetime.datetime.strptime(stamp, '%Y%m%d_%H%M%S')
-            if date < datetime.datetime.now()-ageThreshold:
+            split = f.split('_')
+            stamp = split[0]+split[1]
+            # 20231217153753
+            date = datetime.strptime(stamp, '%Y%m%d%H%M%S')
+            if date < datetime.now()-ageThreshold:
                 print("{} old: {}".format(date,f))
             else:
                 print("{} not: {}".format(date,f))
-            print("Delete: {}".format(file))
+            # Remove by count, not time
             os.remove(file)
+            print("Delete: {}".format(file))
             count = count - 1
             if(count <= imageCount):
                 print("Deleted enough")
@@ -183,26 +159,28 @@ def selectNewImage(currentIndex):
     return files[currentIndex],currentIndex
 
 # Startup code
-find_and_download_new_images()
+AIA.download_range(datetime.now()-timedelta(days=1), datetime.now(), aia_channel, aia_resolution, "./data/")
 delete_old_images()
 
 # Read the last image count and the last time we checked api from file
 try:
     with open("lastCheck","r") as file: 
-        last_check = datetime.datetime.strptime(file.read(), "%d-%b-%Y (%H:%M:%S.%f)")
+        last_check = datetime.strptime(file.read(), "%d-%b-%Y (%H:%M:%S.%f)")
     print("last check from file {}".format(last_check))
 except:
-    last_check = datetime.datetime.now()-check_delay
+    last_check = datetime.now()-check_delay
 
 # Loop
 fadeStep = 255/frameRate/fadeTime
 showImage = False
 imageShown = False
-lastRotation = datetime.datetime.now() - rotateTime
+lastRotation = datetime.now() - rotateTime
 manual = False
 currentIndex = 0
 run = True
 holdcounter = 0
+done = True
+fading = fadingSetting
 while run:
     clock.tick(frameRate)
     # Handle exit events
@@ -210,8 +188,10 @@ while run:
         if event.type == pygame.QUIT:
             run = False 
         if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
-            if(done):
-                manual = True
+            manual = len(glob.glob(scanpath))
+            currentIndex = 0
+            print(f"manual {manual}")
+            fading = False
     # Also exit when mousebutton was held for mouse_exit_delay
     if pygame.mouse.get_pressed()[0]: 
         holdcounter = holdcounter + 1
@@ -221,15 +201,16 @@ while run:
         holdcounter = 0        
 
     # Fading
-    window.blit(background, (0, 0))
-    if showImage:
-        done = blitFadeIn(window, image, (0, 0), fadeStep)
-        if done:
-            imageShown = True
-    if not showImage:
-        done = blitFadeOut(window, image, (0, 0), fadeStep)
-        if done:
-            imageShown = False
+    if(fading):
+        window.blit(background, (0, 0))
+        if showImage:
+            done = blitFadeIn(window, image, (0, 0), fadeStep)
+            if done:
+                imageShown = True
+        if not showImage:
+            done = blitFadeOut(window, image, (0, 0), fadeStep)
+            if done:
+                imageShown = False
     pygame.display.flip()
     
     # Scan new images
@@ -237,33 +218,45 @@ while run:
     # Check more often if there are no files yet because we have no internet
     if(len(glob.glob(scanpath)) == 0):
         timecompare = datetime.timedelta(minutes=5)
-    if last_check < datetime.datetime.now()-timecompare:
-        print("Checking for new images {}".format(str(datetime.datetime.now())))
-        last_check = datetime.datetime.now()
+    if last_check < datetime.now()-timecompare:
+        print("Checking for new images {}".format(str(datetime.now())))
+        last_check = datetime.now()
         with open("lastCheck","w") as file: 
-            file.write(datetime.datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"))
+            file.write(datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"))
 
         find_and_download_new_images()
         delete_old_images()
 
     # Rotate images
-    if(lastRotation < datetime.datetime.now()-rotateTime or manual):
-        manual = False
-        lastRotation = datetime.datetime.now()
+    if(lastRotation < datetime.now()-rotateTime or manual > 0):
+        if(manual > 0):
+            manual -= 1
+            if(manual == 0):
+                # End the video with the most recent
+                currentIndex = len(glob.glob(scanpath))-2
+                fading = fadingSetting
+        lastRotation = datetime.now()
         fileName,currentIndex = selectNewImage(currentIndex)
-        if(done and imageShown):
-            # Replace background
-            background = pygame.image.load(fileName).convert()
-            background = pygame.transform.scale(background, (480,480))
-        if(done and not imageShown):
-            # Replace image 
+        if(not fading):
+            print(f"update {fileName} {manual} {currentIndex}")
             image = pygame.image.load(fileName).convert() 
             image = pygame.transform.scale(image, (480,480))
-            image.set_alpha(0)
-        if showImage:
-            showImage = False
+            image.set_alpha(0xFF)
+            window.blit(image, (0, 0))
         else:
-            showImage = True
+            if(done and imageShown):
+                # Replace background
+                background = pygame.image.load(fileName).convert()
+                background = pygame.transform.scale(background, (480,480))
+            if(done and not imageShown):
+                # Replace image 
+                image = pygame.image.load(fileName).convert() 
+                image = pygame.transform.scale(image, (480,480))
+                image.set_alpha(0)
+            if showImage:
+                showImage = False
+            else:
+                showImage = True
 
 pygame.quit()
 exit()
