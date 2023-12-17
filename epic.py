@@ -1,26 +1,28 @@
 import pygame
 import glob
 import os.path
-import json
 import datetime
-import requests
 import io
-import math
 from urllib.request import urlopen
-import time
+from aia import AIA
 
 # Settings!
-# Image type, natural (False), (color)enhanced (True)
-useEnhancedAPI = False
+# AIA Channel The SDO channel identifier. 
+# Possible values are '0094', '0131', '0171', '0193', '0211', '0304', '0335', '1600', '1700', 'HMIB', 'HMII', 'HMID', 'HMIBC', 'HMIIF', 'HMIIC'.
+aia_channel = '0193'
+
+# AIA Resolution
+# The resolution of the image. Possible values are '4096', '2048', '1024', '512'.
+aia_resolution = '512'
 
 # This is how many images to keep cached
-imageCount = 14
+imageCount = 100
 
 # This sets an age threshold for deletetion (curernt not used)
-ageThreshold = datetime.timedelta(hours=36)
+ageThreshold = datetime.timedelta(hours=48)
 
 # This is the delay between api calls
-check_delay = datetime.timedelta(hours=2)
+check_delay = datetime.timedelta(minutes=15)
 
 # This is the delay rotating the slowhow
 rotateTime = datetime.timedelta(seconds=20)
@@ -98,16 +100,6 @@ def blitFadeOut(target, image, pos, step=2):
     target.blit(image, pos)
     return alpha == 0
 
-def get_epic_images_json():
-    """Pull the API json from NASA EPIC """    
-    # Call the epic api
-    if(useEnhancedAPI):
-        response = requests.get("https://epic.gsfc.nasa.gov/api/enhanced")
-    else:
-        response = requests.get("https://epic.gsfc.nasa.gov/api/natural")    
-    imjson = response.json()
-    return imjson
-
 def save_photos(imageurls, cropfactor=1):
     """Download, crop and save the image"""
     print("saving photos")
@@ -132,33 +124,6 @@ def save_photos(imageurls, cropfactor=1):
         print("Downloaded {}".format(imageurl))
     print("photos saved")
 
-def create_image_urls(photos):
-    urls = []
-    for photo in photos:
-        dt = datetime.datetime.strptime(photo["date"], "%Y-%m-%d %H:%M:%S")
-        if(useEnhancedAPI):
-            imageurl = "https://epic.gsfc.nasa.gov/archive/enhanced/"+str(dt.year)+"/"+str(dt.month).zfill(2)+"/"+str(dt.day).zfill(2)+"/jpg/"+photo["image"]+".jpg"
-        else:
-            imageurl = "https://epic.gsfc.nasa.gov/archive/natural/"+str(dt.year)+"/"+str(dt.month).zfill(2)+"/"+str(dt.day).zfill(2)+"/jpg/"+photo["image"]+".jpg"        
-        urls.append(imageurl)    
-    return urls
-
-def calculateDistanceFromMetadata(imagejson):
-    """Calculate distance from the sattelite to earth in km from j2000 coordinates"""
-    x = imagejson['dscovr_j2000_position']['x']
-    y = imagejson['dscovr_j2000_position']['y']
-    z = imagejson['dscovr_j2000_position']['z']
-    # Pythagoras
-    distanceKM = math.sqrt((x*x)+(y*y)+(z*z))
-    return distanceKM
-
-def calculateCropFactorBasedOnDistance(distanceKM):
-    """Calculate the ratio image size vs earth size using known constants"""
-    # Basic trigoniometry: photo size in km = distance * tan( fov in degrees / 2 ) * 2
-    fieldWidth_km = (distanceKM * math.tan(math.radians(camera_fov_deg) / 2)) * 2
-    object_field_ratio = planet_diameter_km / fieldWidth_km
-    return object_field_ratio
-
 def find_and_download_new_images():
     """Check data directory, check api, download and crop new images we don't have, and delete old ones"""
     # Find images   
@@ -171,15 +136,11 @@ def find_and_download_new_images():
 
     # Check for new images
     try:
-        json = get_epic_images_json()
-        imageurls = create_image_urls(json)
-        newimageurls = []
-        distanceKM = calculateDistanceFromMetadata(json[0])
-        cropfactor = calculateCropFactorBasedOnDistance(distanceKM)
-        for url in imageurls:
-            if(os.path.basename(url) not in basefilenames):
-                newimageurls.append(url)
-        save_photos(newimageurls, cropfactor)
+        latest = AIA.download_latest_time(aia_channel)
+        timecompare = datetime.timedelta(minutes=15)
+        if latest < datetime.datetime.now()-timecompare:
+            print("downloading new image")
+            AIA.download_latest_image(aia_channel, aia_resolution, "./data/")
     except Exception as e:
         print("There was a problem downloading and saving the images, no internet? Details below:")
         print(e)
@@ -195,11 +156,9 @@ def delete_old_images():
         print("More than {} images, cleaning the oldest".format(imageCount))
         for file in files:
             f = os.path.splitext(os.path.basename(file))[0]
-            stamp = str(f.split('_')[-1])
-            # 20230218203420
-            # this bit of code makes it possible to delete by date instead of numbers
-            # currently not used
-            date = datetime.datetime.strptime(stamp, '%Y%m%d%H%M%S')
+            stamp = str(f.split('-')[0])
+            # 20231217_153753
+            date = datetime.datetime.strptime(stamp, '%Y%m%d_%H%M%S')
             if date < datetime.datetime.now()-ageThreshold:
                 print("{} old: {}".format(date,f))
             else:
@@ -209,7 +168,7 @@ def delete_old_images():
             count = count - 1
             if(count <= imageCount):
                 print("Deleted enough")
-                break;
+                break
     else:
         print("Less then {} images, skipping deletions".format(imageCount))
 
