@@ -42,7 +42,7 @@ def opencv_infill_white_pixels_bottom_row(image, rows=20):
     # Clear unimportant bits
     mask[:-rows, :, :] = 0  # Set to black (0, 0, 0)
     # Define the white color range in RGB
-    lower_white = np.array([230, 230, 230], dtype=np.uint8)
+    lower_white = np.array([225, 225, 225], dtype=np.uint8)
     upper_white = np.array([255, 255, 255], dtype=np.uint8)
     # Create a mask for white pixels
     white_mask = cv2.inRange(mask, lower_white, upper_white)
