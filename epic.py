@@ -113,7 +113,7 @@ def find_and_download_new_images():
         timecompare = timedelta(minutes=15)
         if latest < datetime.now()-timecompare:
             print("downloading new image")
-            AIA.download_latest_image(aia_channel, aia_resolution, "./data/")
+            AIA.download_latest_image(aia_channel, aia_resolution, "./data/", True)
     except Exception as e:
         print("There was a problem downloading and saving the images, no internet? Details below:")
         print(e)

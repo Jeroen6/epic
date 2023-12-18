@@ -69,6 +69,9 @@ mkdir LXDE-pi
 echo -e "\n[start-epic.sh]\nx=160\ny=230\n" | tee -a /home/pi/.config/pcmanfm/LXDE-pi/desktop-items-0.conf
 cd /home/pi
 
+# Remove unused stuff
+sudo apt purge pulseaudio
+
 echo ""
 echo "All finished, rebooting. Use install-comitup.sh to setup WiFi connection management"
 sudo reboot
